@@ -1,5 +1,5 @@
 === OPcache & Memcached Manager ===
-Contributors: jessg
+Contributors: ArdathkSheyna
 Tags: opcache, memcached, cache, performance, wp-cli
 Requires at least: 6.5
 Tested up to: 7.0
