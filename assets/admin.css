@@ -1,0 +1,14 @@
+.omm-wrap .omm-card {
+	max-width: 900px;
+	margin-bottom: 24px;
+	padding: 16px 20px;
+}
+
+.omm-stat-table th,
+.omm-stat-table td {
+	padding: 8px 12px;
+}
+
+.omm-actions {
+	margin-top: 12px;
+}
