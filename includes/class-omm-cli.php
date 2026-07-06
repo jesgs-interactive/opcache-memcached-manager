@@ -277,3 +277,125 @@ class OMM_Memcached_CLI_Command {
 
 WP_CLI::add_command( 'cache-manager opcache', 'OMM_OPcache_CLI_Command' );
 WP_CLI::add_command( 'cache-manager memcached', 'OMM_Memcached_CLI_Command' );
+
+/**
+ * Manage the Memcached-backed page cache from the command line.
+ */
+class OMM_PageCache_CLI_Command {
+
+	/**
+	 * Show page cache status.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager pagecache status
+	 */
+	public function status( $args, $assoc_args ) {
+		$status      = OMM_PageCache_Dropin::get_status();
+		$wp_cache_on = OMM_PageCache_Dropin::is_wp_cache_constant_enabled();
+		$settings    = OMM_PageCache::get_settings();
+		$count       = OMM_PageCache::get_cached_count();
+
+		WP_CLI\Utils\format_items(
+			'table',
+			array(
+				array( 'field' => 'dropin_status', 'value' => $status ),
+				array( 'field' => 'wp_cache_constant_enabled', 'value' => $wp_cache_on ? 'yes' : 'no' ),
+				array( 'field' => 'enabled', 'value' => ! empty( $settings['enabled'] ) ? 'yes' : 'no' ),
+				array( 'field' => 'ttl', 'value' => $settings['ttl'] ),
+				array( 'field' => 'cached_pages', 'value' => $count ),
+			),
+			array( 'field', 'value' )
+		);
+
+		if ( ! $wp_cache_on ) {
+			WP_CLI::warning( "WP_CACHE is not enabled. Add define( 'WP_CACHE', true ); near the top of wp-config.php." );
+		}
+	}
+
+	/**
+	 * Purge the entire page cache (all tracked entries; never touches
+	 * the object cache, even if it shares the same Memcached servers).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager pagecache purge
+	 */
+	public function purge( $args, $assoc_args ) {
+		$result = OMM_PageCache::purge_all();
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+		}
+
+		WP_CLI::success( 'Page cache purged.' );
+	}
+
+	/**
+	 * Purge a single URL from the page cache.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <url>
+	 * : The URL to purge.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager pagecache purge-url https://example.com/hello-world/
+	 */
+	public function purge_url( $args, $assoc_args ) {
+		$result = OMM_PageCache::purge_url( $args[0] );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+		}
+
+		WP_CLI::success( "Purged: {$args[0]}" );
+	}
+
+	/**
+	 * Install the advanced-cache.php page cache drop-in.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--overwrite]
+	 * : Overwrite an existing advanced-cache.php that wasn't created by this plugin.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager pagecache install-dropin
+	 */
+	public function install_dropin( $args, $assoc_args ) {
+		$overwrite = WP_CLI\Utils\get_flag_value( $assoc_args, 'overwrite', false );
+		$result    = OMM_PageCache_Dropin::install( (bool) $overwrite );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+		}
+
+		if ( ! OMM_PageCache_Dropin::is_wp_cache_constant_enabled() ) {
+			WP_CLI::warning( "Drop-in installed, but WP_CACHE is not enabled. Add define( 'WP_CACHE', true ); near the top of wp-config.php for it to take effect." );
+		}
+
+		WP_CLI::success( 'advanced-cache.php drop-in installed.' );
+	}
+
+	/**
+	 * Remove the advanced-cache.php page cache drop-in, if it was installed by this plugin.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager pagecache remove-dropin
+	 */
+	public function remove_dropin( $args, $assoc_args ) {
+		$result = OMM_PageCache_Dropin::remove();
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+		}
+
+		WP_CLI::success( 'advanced-cache.php drop-in removed.' );
+	}
+}
+
+WP_CLI::add_command( 'cache-manager pagecache', 'OMM_PageCache_CLI_Command' );
