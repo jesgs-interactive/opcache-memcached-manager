@@ -23,6 +23,10 @@ class OMM_Admin {
 		add_action( 'admin_post_omm_save_settings', array( __CLASS__, 'handle_save_settings' ) );
 		add_action( 'admin_post_omm_install_dropin', array( __CLASS__, 'handle_install_dropin' ) );
 		add_action( 'admin_post_omm_remove_dropin', array( __CLASS__, 'handle_remove_dropin' ) );
+		add_action( 'admin_post_omm_install_pagecache_dropin', array( __CLASS__, 'handle_install_pagecache_dropin' ) );
+		add_action( 'admin_post_omm_remove_pagecache_dropin', array( __CLASS__, 'handle_remove_pagecache_dropin' ) );
+		add_action( 'admin_post_omm_save_pagecache_settings', array( __CLASS__, 'handle_save_pagecache_settings' ) );
+		add_action( 'admin_post_omm_purge_pagecache', array( __CLASS__, 'handle_purge_pagecache' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'render_notices' ) );
 	}
 
@@ -180,6 +184,78 @@ class OMM_Admin {
 		self::redirect_back( array( 'omm_notice' => 'dropin_removed' ) );
 	}
 
+	public static function handle_install_pagecache_dropin() {
+		self::verify_capability();
+		check_admin_referer( 'omm_install_pagecache_dropin' );
+
+		$overwrite = ! empty( $_POST['omm_overwrite_foreign'] );
+		$result    = OMM_PageCache_Dropin::install( $overwrite );
+
+		if ( is_wp_error( $result ) ) {
+			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+		}
+
+		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_installed' ) );
+	}
+
+	public static function handle_remove_pagecache_dropin() {
+		self::verify_capability();
+		check_admin_referer( 'omm_remove_pagecache_dropin' );
+
+		$result = OMM_PageCache_Dropin::remove();
+
+		if ( is_wp_error( $result ) ) {
+			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+		}
+
+		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_removed' ) );
+	}
+
+	public static function handle_save_pagecache_settings() {
+		self::verify_capability();
+		check_admin_referer( 'omm_save_pagecache_settings' );
+
+		$settings = OMM_PageCache::get_settings();
+
+		$settings['enabled'] = ! empty( $_POST['omm_pagecache_enabled'] );
+		$settings['ttl']     = isset( $_POST['omm_pagecache_ttl'] ) ? max( 60, (int) $_POST['omm_pagecache_ttl'] ) : $settings['ttl'];
+
+		$raw_patterns = isset( $_POST['omm_pagecache_excluded'] ) ? wp_unslash( $_POST['omm_pagecache_excluded'] ) : '';
+		$patterns     = array_values( array_filter( array_map( 'trim', preg_split( '/[\r\n]+/', trim( $raw_patterns ) ) ) ) );
+
+		// Validate each is a usable regex before saving; drop any that aren't.
+		$valid_patterns = array();
+		foreach ( $patterns as $pattern ) {
+			if ( false !== @preg_match( $pattern, '' ) ) {
+				$valid_patterns[] = $pattern;
+			}
+		}
+		if ( ! empty( $valid_patterns ) ) {
+			$settings['excluded_patterns'] = $valid_patterns;
+		}
+
+		$result = OMM_PageCache::save_settings( $settings );
+
+		if ( is_wp_error( $result ) ) {
+			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+		}
+
+		self::redirect_back( array( 'omm_notice' => 'pagecache_settings_saved' ) );
+	}
+
+	public static function handle_purge_pagecache() {
+		self::verify_capability();
+		check_admin_referer( 'omm_purge_pagecache' );
+
+		$result = OMM_PageCache::purge_all();
+
+		if ( is_wp_error( $result ) ) {
+			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+		}
+
+		self::redirect_back( array( 'omm_notice' => 'pagecache_purged' ) );
+	}
+
 	/* -----------------------------------------------------------------
 	 * Notices
 	 * ------------------------------------------------------------- */
@@ -203,6 +279,11 @@ class OMM_Admin {
 			'dropin_installed'     => array( 'success', __( 'object-cache.php drop-in installed. WordPress will use Memcached as its object cache from the next request onward.', 'opcache-memcached-manager' ) ),
 			'dropin_removed'       => array( 'success', __( 'object-cache.php drop-in removed.', 'opcache-memcached-manager' ) ),
 			'dropin_error'         => array( 'error', $msg ?: __( 'A drop-in error occurred.', 'opcache-memcached-manager' ) ),
+			'pagecache_dropin_installed' => array( 'success', __( 'Page cache drop-in installed.', 'opcache-memcached-manager' ) ),
+			'pagecache_dropin_removed'   => array( 'success', __( 'Page cache drop-in removed.', 'opcache-memcached-manager' ) ),
+			'pagecache_dropin_error'     => array( 'error', $msg ?: __( 'A page cache error occurred.', 'opcache-memcached-manager' ) ),
+			'pagecache_settings_saved'   => array( 'success', __( 'Page cache settings saved.', 'opcache-memcached-manager' ) ),
+			'pagecache_purged'           => array( 'success', __( 'Page cache purged.', 'opcache-memcached-manager' ) ),
 		);
 
 		if ( ! isset( $map[ $notice ] ) ) {
@@ -235,6 +316,7 @@ class OMM_Admin {
 		self::render_opcache_section( $opcache_status );
 		self::render_memcached_section( $memcached_stats, $reachability );
 		self::render_dropin_section();
+		self::render_pagecache_section();
 		self::render_settings_section( $servers );
 
 		echo '</div>';
@@ -426,6 +508,106 @@ class OMM_Admin {
 		}
 
 		echo '<p class="description" style="margin-top:12px;">' . esc_html__( 'The drop-in reads the Memcached server list from plugin settings below, kept in sync automatically each time you save.', 'opcache-memcached-manager' ) . '</p>';
+
+		echo '</div>';
+	}
+
+	private static function render_pagecache_section() {
+		echo '<h2>' . esc_html__( 'Page Cache', 'opcache-memcached-manager' ) . '</h2>';
+		echo '<div class="card omm-card">';
+
+		if ( ! OMM_Memcached::is_available() ) {
+			echo '<p>' . esc_html__( 'The Memcached PHP extension is not installed, so page caching is unavailable.', 'opcache-memcached-manager' ) . '</p>';
+			echo '</div>';
+			return;
+		}
+
+		$status         = OMM_PageCache_Dropin::get_status();
+		$wp_cache_on    = OMM_PageCache_Dropin::is_wp_cache_constant_enabled();
+		$settings       = OMM_PageCache::get_settings();
+		$cached_count   = OMM_PageCache::get_cached_count();
+
+		$status_labels = array(
+			'not_installed' => __( 'Drop-in not installed.', 'opcache-memcached-manager' ),
+			'ours'           => __( 'Drop-in installed and up to date.', 'opcache-memcached-manager' ),
+			'outdated'       => __( 'Drop-in installed, but an older version. Reinstall to update.', 'opcache-memcached-manager' ),
+			'foreign'        => __( 'A different advanced-cache.php is already present — it was not created by this plugin.', 'opcache-memcached-manager' ),
+		);
+
+		echo '<p>' . esc_html( $status_labels[ $status ] ?? '' ) . '</p>';
+
+		if ( ! $wp_cache_on ) {
+			echo '<div class="notice notice-warning inline"><p>';
+			printf(
+				/* translators: %s: PHP code snippet */
+				esc_html__( 'WP_CACHE is not enabled, so advanced-cache.php will not be loaded even once installed. Add this line near the top of wp-config.php (right after the opening %1$s tag), before the "That\'s all, stop editing!" comment:', 'opcache-memcached-manager' ),
+				'<code>&lt;?php</code>'
+			);
+			echo '</p><p><code>define( \'WP_CACHE\', true );</code></p></div>';
+		}
+
+		if ( in_array( $status, array( 'not_installed', 'outdated' ), true ) ) {
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-right:8px;">';
+			echo '<input type="hidden" name="action" value="omm_install_pagecache_dropin" />';
+			wp_nonce_field( 'omm_install_pagecache_dropin' );
+			submit_button( 'outdated' === $status ? __( 'Update drop-in', 'opcache-memcached-manager' ) : __( 'Install drop-in', 'opcache-memcached-manager' ), 'primary', 'submit', false );
+			echo '</form>';
+		}
+
+		if ( 'foreign' === $status ) {
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-right:8px;">';
+			echo '<input type="hidden" name="action" value="omm_install_pagecache_dropin" />';
+			echo '<input type="hidden" name="omm_overwrite_foreign" value="1" />';
+			wp_nonce_field( 'omm_install_pagecache_dropin' );
+			submit_button(
+				__( 'Overwrite existing drop-in', 'opcache-memcached-manager' ),
+				'primary',
+				'submit',
+				false,
+				array( 'onclick' => "return confirm('" . esc_js( __( 'This will replace the existing advanced-cache.php with this plugin\'s version. Continue?', 'opcache-memcached-manager' ) ) . "');" )
+			);
+			echo '</form>';
+		}
+
+		if ( in_array( $status, array( 'ours', 'outdated' ), true ) ) {
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;">';
+			echo '<input type="hidden" name="action" value="omm_remove_pagecache_dropin" />';
+			wp_nonce_field( 'omm_remove_pagecache_dropin' );
+			submit_button(
+				__( 'Remove drop-in', 'opcache-memcached-manager' ),
+				'secondary',
+				'submit',
+				false,
+				array( 'onclick' => "return confirm('" . esc_js( __( 'Remove advanced-cache.php? Pages will no longer be served from cache.', 'opcache-memcached-manager' ) ) . "');" )
+			);
+			echo '</form>';
+		}
+
+		if ( in_array( $status, array( 'ours', 'outdated' ), true ) ) {
+			echo '<h3 style="margin-top:20px;">' . esc_html__( 'Settings', 'opcache-memcached-manager' ) . '</h3>';
+			echo '<p>' . sprintf( esc_html__( 'Currently tracking %d cached page(s).', 'opcache-memcached-manager' ), (int) $cached_count ) . '</p>';
+
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+			echo '<input type="hidden" name="action" value="omm_save_pagecache_settings" />';
+			wp_nonce_field( 'omm_save_pagecache_settings' );
+
+			echo '<table class="form-table"><tbody>';
+			echo '<tr><th>' . esc_html__( 'Enabled', 'opcache-memcached-manager' ) . '</th><td><label><input type="checkbox" name="omm_pagecache_enabled" value="1"' . checked( ! empty( $settings['enabled'] ), true, false ) . ' /> ' . esc_html__( 'Serve pages from cache', 'opcache-memcached-manager' ) . '</label></td></tr>';
+			echo '<tr><th>' . esc_html__( 'TTL (seconds)', 'opcache-memcached-manager' ) . '</th><td><input type="number" min="60" name="omm_pagecache_ttl" value="' . esc_attr( (int) $settings['ttl'] ) . '" class="small-text" /></td></tr>';
+			echo '<tr><th>' . esc_html__( 'Excluded path patterns', 'opcache-memcached-manager' ) . '</th><td><textarea name="omm_pagecache_excluded" rows="6" cols="50" class="large-text code">' . esc_textarea( implode( "\n", (array) $settings['excluded_patterns'] ) ) . '</textarea><p class="description">' . esc_html__( 'One PHP regex per line, matched against the request path (e.g. #^/wp-admin#). Requests with a query string, non-GET requests, and logged-in/commenter visitors are always excluded.', 'opcache-memcached-manager' ) . '</p></td></tr>';
+			echo '</tbody></table>';
+
+			submit_button( __( 'Save page cache settings', 'opcache-memcached-manager' ) );
+			echo '</form>';
+
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;">';
+			echo '<input type="hidden" name="action" value="omm_purge_pagecache" />';
+			wp_nonce_field( 'omm_purge_pagecache' );
+			submit_button( __( 'Purge entire page cache', 'opcache-memcached-manager' ), 'secondary', 'submit', false );
+			echo '</form>';
+		}
+
+		echo '<p class="description" style="margin-top:12px;">' . esc_html__( 'Content changes (publishing/editing/deleting posts, approved comments) automatically purge just the affected URLs — the post itself plus its home page, author archive, date archive, and taxonomy archives. Theme switches and plugin updates purge the entire page cache.', 'opcache-memcached-manager' ) . '</p>';
 
 		echo '</div>';
 	}
