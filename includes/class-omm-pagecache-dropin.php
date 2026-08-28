@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class OMM_PageCache_Dropin {
 
 	const MARKER  = 'OMM_PAGECACHE_DROPIN_MARKER';
-	const VERSION = '1.0.0';
+	const VERSION = '1.0.1';
 
 	public static function template_path() {
 		return OMM_PATH . 'dropins/advanced-cache-dropin.php';

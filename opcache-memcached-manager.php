@@ -3,7 +3,7 @@
  * Plugin Name:       OPcache & Memcached Manager
  * Plugin URI:        https://example.com/opcache-memcached-manager
  * Description:       Monitor and manage OPcache and Memcached from wp-admin, with matching WP-CLI commands.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 6.5
  * Tested up to:      7.0
  * Requires PHP:      7.4
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'OMM_VERSION', '1.2.0' );
+define( 'OMM_VERSION', '1.2.1' );
 define( 'OMM_PATH', plugin_dir_path( __FILE__ ) );
 define( 'OMM_URL', plugin_dir_url( __FILE__ ) );
 define( 'OMM_CAPABILITY', 'manage_options' ); // Admins only.
