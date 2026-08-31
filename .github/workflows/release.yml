@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: [ '*' ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+      - run: composer update --prefer-dist --no-progress
+      - run: composer test
+
+  build:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to attach a release asset
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/{{VERSION}}/${VERSION}/g" opcache-memcached-manager.php readme.txt
+          if grep -Rq "{{VERSION}}" opcache-memcached-manager.php readme.txt; then
+            echo "::error::{{VERSION}} placeholder was not fully replaced"; exit 1
+          fi
+          grep -Fq "define( 'OMM_VERSION', '${VERSION}' );" opcache-memcached-manager.php || {
+            echo "::error::OMM_VERSION constant was not stamped"; exit 1; }
+
+      - name: Package
+        run: |
+          SLUG=opcache-memcached-manager
+          mkdir -p "/tmp/build/${SLUG}"
+          rsync -a --exclude-from='.distignore' ./ "/tmp/build/${SLUG}/"
+          ( cd /tmp/build && zip -r "${GITHUB_WORKSPACE}/${SLUG}.zip" "${SLUG}" )
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: opcache-memcached-manager.zip

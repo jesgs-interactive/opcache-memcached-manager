@@ -1,23 +1,24 @@
 <?php
 /**
  * Plugin Name:       OPcache & Memcached Manager
- * Plugin URI:        https://example.com/opcache-memcached-manager
+ * Plugin URI:        https://github.com/jesgs-interactive/opcache-memcached-manager
  * Description:       Monitor and manage OPcache and Memcached from wp-admin, with matching WP-CLI commands.
- * Version:           1.2.1
+ * Version:           {{VERSION}}
  * Requires at least: 6.5
  * Tested up to:      7.0
  * Requires PHP:      7.4
  * Author:            Jess G.
- * License:           GPL v2 or later
+ * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:        opcache-memcached-manager
+ * Text Domain:       opcache-memcached-manager
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'OMM_VERSION', '1.2.1' );
+define( 'OMM_VERSION', '{{VERSION}}' );
+define( 'OMM_PLUGIN_FILE', __FILE__ );
 define( 'OMM_PATH', plugin_dir_path( __FILE__ ) );
 define( 'OMM_URL', plugin_dir_url( __FILE__ ) );
 define( 'OMM_CAPABILITY', 'manage_options' ); // Admins only.
@@ -27,6 +28,7 @@ require_once OMM_PATH . 'includes/class-omm-memcached.php';
 require_once OMM_PATH . 'includes/class-omm-dropin.php';
 require_once OMM_PATH . 'includes/class-omm-pagecache-dropin.php';
 require_once OMM_PATH . 'includes/class-omm-pagecache.php';
+require_once OMM_PATH . 'includes/class-omm-update-checker.php';
 require_once OMM_PATH . 'includes/class-omm-admin.php';
 
 /**
@@ -56,6 +58,47 @@ register_activation_hook( __FILE__, function () {
 	if ( false === get_option( 'omm_settings', false ) ) {
 		add_option( 'omm_settings', omm_default_settings() );
 	}
+} );
+
+/**
+ * Load translations. Needed for a self-hosted plugin — WordPress only
+ * auto-loads language packs for plugins hosted on WordPress.org.
+ */
+add_action( 'init', function () {
+	load_plugin_textdomain(
+		'opcache-memcached-manager',
+		false,
+		dirname( plugin_basename( OMM_PLUGIN_FILE ) ) . '/languages'
+	);
+} );
+
+/**
+ * "Settings" link next to Deactivate on the plugins list screen — where
+ * people look for it first.
+ */
+add_filter( 'plugin_action_links_' . plugin_basename( OMM_PLUGIN_FILE ), function ( $links ) {
+	if ( ! current_user_can( OMM_CAPABILITY ) ) {
+		return $links;
+	}
+
+	$settings_link = sprintf(
+		'<a href="%s">%s</a>',
+		esc_url( admin_url( 'admin.php?page=' . OMM_Admin::PAGE_SLUG ) ),
+		esc_html__( 'Settings', 'opcache-memcached-manager' )
+	);
+
+	array_unshift( $links, $settings_link );
+
+	return $links;
+} );
+
+/**
+ * Wire the plugin into the standard Plugins → Installed Plugins update UI,
+ * pointed at this repo's GitHub Releases instead of WordPress.org.
+ */
+add_action( 'plugins_loaded', function () {
+	$updater = new OMM_Update_Checker( plugin_basename( OMM_PLUGIN_FILE ), OMM_VERSION );
+	$updater->init();
 } );
 
 /**

@@ -13,6 +13,9 @@ class OMM_Admin {
 
 	const PAGE_SLUG = 'omm-cache-manager';
 
+	/** @var string|null Hook suffix returned by add_menu_page(), for scoping asset enqueues. */
+	private static $hook_suffix = null;
+
 	public static function init() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
@@ -31,7 +34,7 @@ class OMM_Admin {
 	}
 
 	public static function add_menu() {
-		add_menu_page(
+		self::$hook_suffix = add_menu_page(
 			__( 'Cache Manager', 'opcache-memcached-manager' ),
 			__( 'Cache Manager', 'opcache-memcached-manager' ),
 			OMM_CAPABILITY,
@@ -43,10 +46,14 @@ class OMM_Admin {
 	}
 
 	public static function enqueue_assets( $hook ) {
-		if ( 'toplevel_page_' . self::PAGE_SLUG !== $hook ) {
+		if ( null === self::$hook_suffix || $hook !== self::$hook_suffix ) {
 			return;
 		}
 		wp_enqueue_style( 'omm-admin', OMM_URL . 'assets/admin.css', array(), OMM_VERSION );
+	}
+
+	private static function error_transient_key() {
+		return 'omm_admin_error_' . get_current_user_id();
 	}
 
 	private static function verify_capability() {
@@ -64,6 +71,54 @@ class OMM_Admin {
 		exit;
 	}
 
+	/**
+	 * Redirect back with an error notice. The message is stashed in a
+	 * short-lived per-user transient rather than the query string, so it
+	 * stays out of browser history and server access logs.
+	 */
+	private static function redirect_with_error( $notice, $message ) {
+		set_transient( self::error_transient_key(), (string) $message, MINUTE_IN_SECONDS );
+		self::redirect_back( array( 'omm_notice' => $notice ) );
+	}
+
+	/**
+	 * Parse the "Memcached server settings" textarea into a clean server list.
+	 * One entry per line as "host", "host:port", or "host:port:weight". Lines
+	 * with no host are dropped; a missing or non-positive port falls back to
+	 * 11211, and weight to 0.
+	 *
+	 * @param string $raw Textarea contents (already unslashed).
+	 * @return array<int, array{host:string, port:int, weight:int}>
+	 */
+	public static function parse_server_lines( $raw ) {
+		$lines   = preg_split( '/[\r\n]+/', trim( (string) $raw ) );
+		$servers = array();
+
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			if ( '' === $line ) {
+				continue;
+			}
+
+			$parts  = array_map( 'trim', explode( ':', $line ) );
+			$host   = isset( $parts[0] ) ? $parts[0] : '';
+			$port   = isset( $parts[1] ) ? (int) $parts[1] : 11211;
+			$weight = isset( $parts[2] ) ? (int) $parts[2] : 0;
+
+			if ( '' === $host ) {
+				continue;
+			}
+
+			$servers[] = array(
+				'host'   => sanitize_text_field( $host ),
+				'port'   => $port > 0 ? $port : 11211,
+				'weight' => max( 0, $weight ),
+			);
+		}
+
+		return $servers;
+	}
+
 	/* -----------------------------------------------------------------
 	 * Action handlers
 	 * ------------------------------------------------------------- */
@@ -75,7 +130,7 @@ class OMM_Admin {
 		$result = OMM_OPcache::reset();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'opcache_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'opcache_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'opcache_reset' ) );
@@ -85,11 +140,11 @@ class OMM_Admin {
 		self::verify_capability();
 		check_admin_referer( 'omm_invalidate_file' );
 
-		$path = isset( $_POST['omm_file_path'] ) ? wp_unslash( $_POST['omm_file_path'] ) : '';
+		$path = isset( $_POST['omm_file_path'] ) ? sanitize_text_field( wp_unslash( $_POST['omm_file_path'] ) ) : '';
 		$result = OMM_OPcache::invalidate_file( $path );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'opcache_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'opcache_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'opcache_invalidated' ) );
@@ -102,7 +157,7 @@ class OMM_Admin {
 		$result = OMM_Memcached::flush();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'memcached_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'memcached_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'memcached_flushed' ) );
@@ -122,30 +177,8 @@ class OMM_Admin {
 		check_admin_referer( 'omm_save_settings' );
 
 		$raw_lines = isset( $_POST['omm_memcached_servers'] ) ? wp_unslash( $_POST['omm_memcached_servers'] ) : '';
-		$lines     = preg_split( '/[\r\n]+/', trim( $raw_lines ) );
 
-		$servers = array();
-		foreach ( $lines as $line ) {
-			$line = trim( $line );
-			if ( '' === $line ) {
-				continue;
-			}
-			// Accept "host:port" or "host:port:weight".
-			$parts = array_map( 'trim', explode( ':', $line ) );
-			$host  = isset( $parts[0] ) ? $parts[0] : '';
-			$port  = isset( $parts[1] ) ? (int) $parts[1] : 11211;
-			$weight = isset( $parts[2] ) ? (int) $parts[2] : 0;
-
-			if ( '' === $host ) {
-				continue;
-			}
-
-			$servers[] = array(
-				'host'   => sanitize_text_field( $host ),
-				'port'   => $port > 0 ? $port : 11211,
-				'weight' => max( 0, $weight ),
-			);
-		}
+		$servers = self::parse_server_lines( $raw_lines );
 
 		if ( empty( $servers ) ) {
 			$servers = omm_default_settings()['memcached_servers'];
@@ -165,7 +198,7 @@ class OMM_Admin {
 		$result    = OMM_Dropin::install( $overwrite );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'dropin_installed' ) );
@@ -178,7 +211,7 @@ class OMM_Admin {
 		$result = OMM_Dropin::remove();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'dropin_removed' ) );
@@ -192,7 +225,7 @@ class OMM_Admin {
 		$result    = OMM_PageCache_Dropin::install( $overwrite );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_installed' ) );
@@ -205,7 +238,7 @@ class OMM_Admin {
 		$result = OMM_PageCache_Dropin::remove();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_removed' ) );
@@ -237,7 +270,7 @@ class OMM_Admin {
 		$result = OMM_PageCache::save_settings( $settings );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'pagecache_settings_saved' ) );
@@ -250,7 +283,7 @@ class OMM_Admin {
 		$result = OMM_PageCache::purge_all();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_error', 'omm_msg' => rawurlencode( $result->get_error_message() ) ) );
+			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
 		}
 
 		self::redirect_back( array( 'omm_notice' => 'pagecache_purged' ) );
@@ -266,7 +299,12 @@ class OMM_Admin {
 		}
 
 		$notice = sanitize_key( $_GET['omm_notice'] );
-		$msg    = isset( $_GET['omm_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['omm_msg'] ) ) : '';
+
+		$stored_error = get_transient( self::error_transient_key() );
+		$msg          = is_string( $stored_error ) ? $stored_error : '';
+		if ( '' !== $msg ) {
+			delete_transient( self::error_transient_key() );
+		}
 
 		$map = array(
 			'opcache_reset'        => array( 'success', __( 'OPcache was reset successfully.', 'opcache-memcached-manager' ) ),
@@ -406,8 +444,17 @@ class OMM_Admin {
 			echo '<h3>' . esc_html__( 'Per-server detail', 'opcache-memcached-manager' ) . '</h3>';
 			echo '<table class="widefat striped omm-stat-table">';
 			echo '<thead><tr>';
-			foreach ( array( 'Server', 'Uptime', 'Items', 'Bytes', 'Hit rate', 'Connections', 'Evictions' ) as $h ) {
-				echo '<th>' . esc_html__( $h, 'opcache-memcached-manager' ) . '</th>';
+			$headers = array(
+				esc_html__( 'Server', 'opcache-memcached-manager' ),
+				esc_html__( 'Uptime', 'opcache-memcached-manager' ),
+				esc_html__( 'Items', 'opcache-memcached-manager' ),
+				esc_html__( 'Bytes', 'opcache-memcached-manager' ),
+				esc_html__( 'Hit rate', 'opcache-memcached-manager' ),
+				esc_html__( 'Connections', 'opcache-memcached-manager' ),
+				esc_html__( 'Evictions', 'opcache-memcached-manager' ),
+			);
+			foreach ( $headers as $h ) {
+				echo '<th>' . $h . '</th>';
 			}
 			echo '</tr></thead><tbody>';
 			foreach ( $stats['servers'] as $s ) {
