@@ -1,0 +1,15 @@
+# Files excluded from the packaged release zip. Both the release workflow
+# and any local build read from this one list.
+/.git/
+/.github/
+/.idea/
+/tests/
+/phpunit.xml
+/phpunit.xml.dist
+/composer.json
+/composer.lock
+/vendor/
+.gitignore
+.distignore
+.editorconfig
+AGENTS.md

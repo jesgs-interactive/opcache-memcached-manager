@@ -4,8 +4,8 @@ Tags: opcache, memcached, cache, performance, wp-cli
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.1
-License: GPLv2 or later
+Stable tag: {{VERSION}}
+License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 Monitor and manage OPcache and Memcached from wp-admin, with matching WP-CLI commands.
@@ -76,8 +76,18 @@ Because the page cache shares its Memcached server pool with the object cache dr
 * This plugin talks to Memcached directly via the configured server list, independent of whether WordPress uses Memcached as its object cache. If you *do* run a Memcached-backed `object-cache.php` drop-in, point the server list at the same server(s) it uses so "Flush Memcached pool" and "Flush WP object cache" stay in sync.
 * Requires the PHP `memcached` extension (Memcached class) for Memcached features, and the Zend OPcache extension for OPcache features. Both sections degrade gracefully with a clear message if the relevant extension isn't installed.
 * All admin actions and CLI commands require the `manage_options` capability / an administrator running WP-CLI.
+* **Deleting the plugin** (not deactivating) removes its two option rows and, if they're still this plugin's own, the `object-cache.php` / `advanced-cache.php` drop-ins and their generated config files from `wp-content/`. Deactivating changes nothing.
+* Updates come from this repo's GitHub Releases, shown in the normal Plugins → Installed Plugins update UI.
 
 == Changelog ==
+
+= 1.3.0 =
+* Add self-hosted update support: new versions published as GitHub Releases show up in the standard plugin update UI.
+* Add `uninstall.php` — deleting the plugin now cleans up its options and drop-in files instead of orphaning them.
+* Add a "Settings" link on the plugins list screen.
+* Add a PHPUnit suite covering the page-cache key/eligibility logic and the Memcached server-list parser, plus a CI workflow and a tag-triggered release-packaging workflow.
+* Load the plugin text domain for translations on self-hosted installs.
+* Admin: keep drop-in error messages out of the redirect URL (stashed in a short transient instead); tighten input sanitization and i18n string extraction. No change to behavior.
 
 = 1.2.1 =
 * Page cache: never serve or store a response for a request that asks for a non-HTML representation (`Accept: text/markdown`). The cache is keyed on scheme+host+path only, so without this a markdown response could be cached and then served to browsers asking for HTML, and vice versa. Fixes a conflict with the wp-markdown-pages plugin.
