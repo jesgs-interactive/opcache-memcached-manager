@@ -13,3 +13,5 @@
 .distignore
 .editorconfig
 AGENTS.md
+README.md
+CHANGELOG.md

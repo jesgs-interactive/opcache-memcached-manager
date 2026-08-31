@@ -14,6 +14,7 @@ Working notes for this plugin. Conventions follow the `wordpress-plugin-scaffold
 - **Page cache key logic is duplicated on purpose.** `omm_pagecache_build_key()` in `dropins/advanced-cache-dropin.php` and `OMM_PageCache::build_key()` in `includes/class-omm-pagecache.php` must produce identical keys — the drop-in can't call into plugin code. `tests/PageCacheKeyTest.php` locks this; run it after touching either.
 - **Drop-in edits require a version bump.** Bump the `Version:` header and the `OMM_*_DROPIN_VERSION` constant in the template, and the matching `const VERSION` in the `OMM_*_Dropin` class, so installed copies report `outdated` and admins get a reinstall prompt.
 - **Deactivation is non-destructive.** Data removal lives in `uninstall.php` only.
+- **Two changelogs.** `readme.txt` (`== Changelog ==`) is the WordPress-format one that ships; `CHANGELOG.md` is the full Keep a Changelog version for GitHub. Update both in the same change. `README.md` is GitHub-only (excluded from the release zip via `.distignore`).
 
 ## Security baseline
 
