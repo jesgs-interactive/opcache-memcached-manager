@@ -8,7 +8,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
@@ -24,7 +24,7 @@ jobs:
       contents: write   # required to attach a release asset
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Stamp version
         run: |
@@ -44,6 +44,6 @@ jobs:
           ( cd /tmp/build && zip -r "${GITHUB_WORKSPACE}/${SLUG}.zip" "${SLUG}" )
 
       - name: Attach to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: opcache-memcached-manager.zip
