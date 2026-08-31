@@ -2,7 +2,7 @@
 /**
  * Plugin Name: OMM Memcached Object Cache
  * Description: Memcached-backed WP_Object_Cache implementation. Installed and managed by the "OPcache & Memcached Manager" plugin — do not edit by hand, use the plugin's admin screen to reinstall or remove it. OMM Memcached Object Cache Drop-in.
- * Version:     1.0.0
+ * Version:     1.0.1
  *
  * OMM_MEMCACHED_DROPIN_MARKER
  */
@@ -10,7 +10,7 @@
 defined( 'ABSPATH' ) || exit;
 
 if ( ! defined( 'OMM_MEMCACHED_DROPIN_VERSION' ) ) {
-	define( 'OMM_MEMCACHED_DROPIN_VERSION', '1.0.0' );
+	define( 'OMM_MEMCACHED_DROPIN_VERSION', '1.0.1' );
 }
 
 // If the Memcached extension isn't present, fall back to WordPress's
@@ -25,6 +25,7 @@ if ( ! class_exists( 'Memcached' ) ) {
  * whenever its settings are saved. Falls back to localhost if the config
  * file is missing (e.g. drop-in copied to a server before first save).
  */
+if ( ! function_exists( 'omm_dropin_get_servers' ) ) :
 function omm_dropin_get_servers() {
 	$config_file = WP_CONTENT_DIR . '/omm-memcached-servers.php';
 
@@ -37,81 +38,111 @@ function omm_dropin_get_servers() {
 
 	return array( array( 'host' => '127.0.0.1', 'port' => 11211 ) );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_add' ) ) :
 function wp_cache_add( $key, $data, $group = '', $expire = 0 ) {
 	global $wp_object_cache;
 	return $wp_object_cache->add( $key, $data, $group, $expire );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_get' ) ) :
 function wp_cache_get( $key, $group = '', $force = false, &$found = null ) {
 	global $wp_object_cache;
 	return $wp_object_cache->get( $key, $group, $force, $found );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_get_multiple' ) ) :
 function wp_cache_get_multiple( $keys, $group = '', $force = false ) {
 	global $wp_object_cache;
 	return $wp_object_cache->get_multiple( $keys, $group, $force );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_set' ) ) :
 function wp_cache_set( $key, $data, $group = '', $expire = 0 ) {
 	global $wp_object_cache;
 	return $wp_object_cache->set( $key, $data, $group, $expire );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_replace' ) ) :
 function wp_cache_replace( $key, $data, $group = '', $expire = 0 ) {
 	global $wp_object_cache;
 	return $wp_object_cache->replace( $key, $data, $group, $expire );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_delete' ) ) :
 function wp_cache_delete( $key, $group = '' ) {
 	global $wp_object_cache;
 	return $wp_object_cache->delete( $key, $group );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_incr' ) ) :
 function wp_cache_incr( $key, $offset = 1, $group = '' ) {
 	global $wp_object_cache;
 	return $wp_object_cache->incr( $key, $offset, $group );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_decr' ) ) :
 function wp_cache_decr( $key, $offset = 1, $group = '' ) {
 	global $wp_object_cache;
 	return $wp_object_cache->decr( $key, $offset, $group );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_flush' ) ) :
 function wp_cache_flush() {
 	global $wp_object_cache;
 	return $wp_object_cache->flush();
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_close' ) ) :
 function wp_cache_close() {
 	return true;
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_init' ) ) :
 function wp_cache_init() {
 	global $wp_object_cache;
 	$wp_object_cache = new OMM_Memcached_Object_Cache();
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_add_global_groups' ) ) :
 function wp_cache_add_global_groups( $groups ) {
 	global $wp_object_cache;
 	$wp_object_cache->add_global_groups( $groups );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_add_non_persistent_groups' ) ) :
 function wp_cache_add_non_persistent_groups( $groups ) {
 	global $wp_object_cache;
 	$wp_object_cache->add_non_persistent_groups( $groups );
 }
+endif;
 
+if ( ! function_exists( 'wp_cache_switch_to_blog' ) ) :
 function wp_cache_switch_to_blog( $blog_id ) {
 	global $wp_object_cache;
 	$wp_object_cache->switch_to_blog( $blog_id );
 }
+endif;
 
 /**
  * Minimal WP_Object_Cache-compatible implementation backed by Memcached,
  * with an in-request array cache layered on top so repeated reads in the
  * same request don't round-trip to the server.
  */
+if ( ! class_exists( 'OMM_Memcached_Object_Cache' ) ) :
 class OMM_Memcached_Object_Cache {
 
 	/** @var Memcached */
@@ -304,3 +335,4 @@ class OMM_Memcached_Object_Cache {
 		return $this->mc->flush();
 	}
 }
+endif;

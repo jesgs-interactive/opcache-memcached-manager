@@ -4,7 +4,7 @@ Tags: opcache, memcached, cache, performance, wp-cli
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -63,7 +63,7 @@ A separate, optional full-page cache, also backed by Memcached (same server pool
 
 3. Tick "Enabled" in the Page Cache settings and save.
 
-**How caching decisions are made:** only `GET` requests with no query string are ever cached or served from cache; requests from logged-in users or anyone with a comment cookie are always excluded, as are `wp-admin`, `wp-login.php`, `wp-cron.php`, `xmlrpc.php`, `wp-json`, and `/feed` by default (configurable). Cache hits are served directly from `advanced-cache.php` before WordPress even loads, for maximum speed; on a miss, the rendered page is captured and stored once WordPress finishes generating it.
+**How caching decisions are made:** only `GET` requests with no query string are ever cached or served from cache; requests from logged-in users or anyone with a comment cookie are always excluded, as are `wp-admin`, `wp-login.php`, `wp-cron.php`, `xmlrpc.php`, `wp-json`, and `/feed` by default (configurable). Requests that ask for a non-HTML representation via `Accept: text/markdown` are also skipped, since the cache is keyed on URL alone with no `Accept` dimension. Cache hits are served directly from `advanced-cache.php` before WordPress even loads, for maximum speed; on a miss, the rendered page is captured and stored once WordPress finishes generating it.
 
 **Purging:** publishing, editing, or deleting a post purges just the URLs it affects — the post's own permalink, the home page, the relevant author archive, date archives, and taxonomy term archives. Approving a comment does the same for its post. Theme switches and plugin updates purge the entire page cache, since their impact isn't easily scoped to specific URLs. You can also purge everything manually from the admin screen or via `wp cache-manager pagecache purge`.
 
@@ -78,6 +78,12 @@ Because the page cache shares its Memcached server pool with the object cache dr
 * All admin actions and CLI commands require the `manage_options` capability / an administrator running WP-CLI.
 
 == Changelog ==
+
+= 1.2.1 =
+* Page cache: never serve or store a response for a request that asks for a non-HTML representation (`Accept: text/markdown`). The cache is keyed on scheme+host+path only, so without this a markdown response could be cached and then served to browsers asking for HTML, and vice versa. Fixes a conflict with the wp-markdown-pages plugin.
+* Page cache: skip entirely under WP-CLI, where there is no real request context to classify.
+* Page cache: treat a request with no `REQUEST_METHOD` as not cacheable instead of assuming `GET`.
+* Both drop-ins: guard every function and class definition with `function_exists()` / `class_exists()` so a second include of the drop-in in one request can't fatal with a redeclaration error. Bumps both drop-ins to 1.0.1 — reinstall them from the Cache Manager screen (or `wp cache-manager pagecache install-dropin` / `wp cache-manager memcached install-dropin`) to pick up the change.
 
 = 1.2.0 =
 * Add optional full-page cache backed by Memcached: advanced-cache.php drop-in, targeted purge on content changes, admin UI and WP-CLI parity.

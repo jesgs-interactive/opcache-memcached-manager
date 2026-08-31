@@ -2,7 +2,7 @@
 /**
  * Plugin Name: OMM Page Cache
  * Description: Full-page cache backed by Memcached. Installed and managed by the "OPcache & Memcached Manager" plugin — do not edit by hand, use the plugin's admin screen to reinstall or remove it. OMM Page Cache Drop-in.
- * Version:     1.0.0
+ * Version:     1.0.1
  *
  * OMM_PAGECACHE_DROPIN_MARKER
  *
@@ -18,7 +18,7 @@
 defined( 'ABSPATH' ) || exit;
 
 if ( ! defined( 'OMM_PAGECACHE_DROPIN_VERSION' ) ) {
-	define( 'OMM_PAGECACHE_DROPIN_VERSION', '1.0.0' );
+	define( 'OMM_PAGECACHE_DROPIN_VERSION', '1.0.1' );
 }
 
 // If the Memcached extension is missing, do nothing — WP boots normally.
@@ -26,10 +26,19 @@ if ( ! class_exists( 'Memcached' ) ) {
 	return;
 }
 
+// Page caching is a concept for HTTP responses; WP-CLI requests have no
+// real $_SERVER context (REQUEST_METHOD, REQUEST_URI, etc. are unset),
+// which would otherwise misclassify every CLI command as an eligible GET
+// request to "/". Skip entirely under WP-CLI.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	return;
+}
+
 /**
  * Read server pool + settings written by the plugin whenever its
  * settings are saved. Falls back to sane defaults if missing.
  */
+if ( ! function_exists( 'omm_pagecache_get_config' ) ) :
 function omm_pagecache_get_config() {
 	$defaults = array(
 		'enabled'            => false,
@@ -54,7 +63,9 @@ function omm_pagecache_get_config() {
 
 	return $defaults;
 }
+endif;
 
+if ( ! function_exists( 'omm_pagecache_get_servers' ) ) :
 function omm_pagecache_get_servers() {
 	$config_file = WP_CONTENT_DIR . '/omm-memcached-servers.php';
 	if ( file_exists( $config_file ) ) {
@@ -65,31 +76,45 @@ function omm_pagecache_get_servers() {
 	}
 	return array( array( 'host' => '127.0.0.1', 'port' => 11211 ) );
 }
+endif;
 
 /**
  * Build the cache key for a given scheme/host/path. Must match
  * OMM_PageCache::build_key() exactly.
  */
+if ( ! function_exists( 'omm_pagecache_build_key' ) ) :
 function omm_pagecache_build_key( $scheme, $host, $path ) {
 	$path = '/' . ltrim( (string) $path, '/' );
 	return 'omm_page:' . md5( strtolower( $scheme ) . '://' . strtolower( $host ) . $path );
 }
+endif;
 
 /**
  * Whether the current request is eligible to be served from, or saved to,
  * the page cache. Deliberately conservative: GET only, no query string, no
  * logged-in/commenter cookies, not an excluded path.
  */
+if ( ! function_exists( 'omm_pagecache_is_eligible' ) ) :
 function omm_pagecache_is_eligible( array $config ) {
 	if ( empty( $config['enabled'] ) ) {
 		return false;
 	}
 
-	if ( ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) !== 'GET' ) {
+	if ( ( $_SERVER['REQUEST_METHOD'] ?? '' ) !== 'GET' ) {
 		return false;
 	}
 
 	if ( ! empty( $_SERVER['QUERY_STRING'] ) ) {
+		return false;
+	}
+
+	// This cache is keyed on scheme+host+path only, with no Accept
+	// dimension - so a request that prefers a non-HTML representation
+	// must never read from or write to it. Otherwise whichever variant
+	// populates the cache first gets served to everyone, regardless of
+	// what they actually asked for.
+	$accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+	if ( false !== stripos( $accept, 'text/markdown' ) ) {
 		return false;
 	}
 
@@ -112,7 +137,7 @@ function omm_pagecache_is_eligible( array $config ) {
 
 	return true;
 }
-
+endif;
 $omm_pc_config = omm_pagecache_get_config();
 
 if ( ! omm_pagecache_is_eligible( $omm_pc_config ) ) {
