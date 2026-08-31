@@ -19,12 +19,17 @@ A single "Cache Manager" screen in wp-admin (Administrators only) that shows:
 
 Actions available from the UI:
 
+* **Clear all caches** in one step — resets OPcache, flushes the whole Memcached pool, flushes the WordPress object cache, and purges the page cache.
 * Reset the entire OPcache, or invalidate a single file by path.
 * Flush the configured Memcached server pool directly.
 * Flush the WordPress object cache (`wp_cache_flush()`), which only touches Memcached data if WordPress is actually using it as the object cache backend.
 * Edit the list of Memcached servers (host:port, one per line).
 
+The same stats and clear controls are also on a **"Cache" menu in the admin toolbar**, visible to administrators on the front end as well as in wp-admin.
+
 Everything above is also available via WP-CLI:
+
+    wp cache-manager clear-all
 
     wp cache-manager opcache status
     wp cache-manager opcache clear
@@ -82,6 +87,8 @@ Because the page cache shares its Memcached server pool with the object cache dr
 == Changelog ==
 
 = 1.3.0 =
+* Add a "Clear all caches" button (and `wp cache-manager clear-all`) that resets OPcache, flushes the Memcached pool, flushes the WordPress object cache, and purges the page cache in one step.
+* Add a "Cache" menu to the admin toolbar with cache stats and clear controls, for administrators, on the front end as well as in wp-admin.
 * Add self-hosted update support: new versions published as GitHub Releases show up in the standard plugin update UI.
 * Add `uninstall.php` — deleting the plugin now cleans up its options and drop-in files instead of orphaning them.
 * Add a "Settings" link on the plugins list screen.

@@ -25,6 +25,10 @@ A single **Cache Manager** screen (Administrators only) showing:
   (`wp-content/advanced-cache.php`), with a TTL, configurable exclusion
   patterns, and targeted purging on content changes.
 
+There's also a **"Clear all caches"** action (button, WP-CLI command, and
+toolbar entry) that clears all four at once, and a **"Cache" menu in the admin
+toolbar** with stats and clear controls for administrators.
+
 The two drop-ins are optional and independent. Full detail on how the page cache
 makes its decisions and what it purges is in [`readme.txt`](readme.txt).
 
@@ -53,6 +57,8 @@ update check stays disabled while that placeholder is in place.
 ## WP-CLI
 
 ```
+wp cache-manager clear-all
+
 wp cache-manager opcache status
 wp cache-manager opcache clear
 wp cache-manager opcache invalidate <file>

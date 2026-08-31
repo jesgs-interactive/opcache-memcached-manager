@@ -10,6 +10,16 @@ Dates before 1.2.1 are approximate — they predate tagged releases.
 
 ### Added
 
+- **Clear all caches** in one step — a button on the Cache Manager screen, a
+  `wp cache-manager clear-all` command, and an entry in the new toolbar menu.
+  Resets OPcache, flushes the entire Memcached pool, flushes the WordPress
+  object cache, and purges the page cache. Steps that don't apply (OPcache
+  disabled, no Memcached extension) are reported and skipped.
+- **"Cache" menu in the admin toolbar** — a compact set of cache stats
+  (OPcache hit rate and memory, configured server count, object-cache
+  backend, page-cache size) and one-click clear controls, shown to
+  administrators on the front end as well as in wp-admin. Actions return you
+  to the page you triggered them from.
 - Self-hosted update support: releases published on GitHub appear in the
   standard Plugins → Installed Plugins update UI (`OMM_Update_Checker`).
 - `uninstall.php`: deleting the plugin now removes its two option rows and,
@@ -26,8 +36,10 @@ Dates before 1.2.1 are approximate — they predate tagged releases.
 
 ### Changed
 
-- Drop-in error messages are kept out of the redirect URL — stashed in a
-  short-lived per-user transient instead.
+- Admin notices are delivered through a one-time per-user transient instead
+  of the redirect URL, so they can appear on whatever screen you land on
+  (this is what lets the toolbar actions report back in place) and stay out
+  of browser history and server logs.
 - Tightened input sanitization and internationalization string extraction in
   the admin screen. No change to behavior.
 - License metadata normalized to the SPDX identifier `GPL-2.0-or-later`.

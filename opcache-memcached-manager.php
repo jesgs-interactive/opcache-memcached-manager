@@ -30,6 +30,7 @@ require_once OMM_PATH . 'includes/class-omm-pagecache-dropin.php';
 require_once OMM_PATH . 'includes/class-omm-pagecache.php';
 require_once OMM_PATH . 'includes/class-omm-update-checker.php';
 require_once OMM_PATH . 'includes/class-omm-admin.php';
+require_once OMM_PATH . 'includes/class-omm-admin-bar.php';
 
 /**
  * Default plugin settings.
@@ -52,6 +53,36 @@ function omm_default_settings() {
 function omm_get_settings() {
 	$saved = get_option( 'omm_settings', array() );
 	return wp_parse_args( $saved, omm_default_settings() );
+}
+
+/**
+ * Clear every cache this plugin can reach, in one call: OPcache, the whole
+ * Memcached pool, the WordPress object cache, and the page cache.
+ *
+ * Unlike OMM_PageCache::purge_all(), this deliberately flushes the entire
+ * Memcached pool — the point is to clear everything, not to scope around
+ * shared data.
+ *
+ * @return array<string, true|WP_Error> Keyed by subsystem: opcache,
+ *         memcached, object_cache, page_cache. A WP_Error means that step
+ *         was skipped or failed (e.g. OPcache disabled, no servers).
+ */
+function omm_clear_all_caches() {
+	$results = array();
+
+	$results['opcache'] = OMM_OPcache::is_available()
+		? OMM_OPcache::reset()
+		: new WP_Error( 'omm_opcache_unavailable', __( 'OPcache is not available on this server.', 'opcache-memcached-manager' ) );
+
+	$results['memcached'] = OMM_Memcached::is_available()
+		? OMM_Memcached::flush()
+		: new WP_Error( 'omm_memcached_unavailable', __( 'The Memcached extension is not available on this server.', 'opcache-memcached-manager' ) );
+
+	$results['object_cache'] = OMM_Memcached::flush_wp_object_cache() ? true : new WP_Error( 'omm_object_cache_flush_failed', __( 'wp_cache_flush() returned false.', 'opcache-memcached-manager' ) );
+
+	$results['page_cache'] = OMM_PageCache::purge_all();
+
+	return $results;
 }
 
 register_activation_hook( __FILE__, function () {
@@ -107,6 +138,11 @@ add_action( 'plugins_loaded', function () {
 if ( is_admin() ) {
 	OMM_Admin::init();
 }
+
+/**
+ * Boot the admin-bar menu (shows on the front end too when logged in).
+ */
+OMM_Admin_Bar::init();
 
 /**
  * Boot page cache purge hooks (needs to run everywhere, not just admin,

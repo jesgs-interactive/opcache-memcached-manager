@@ -19,6 +19,7 @@ class OMM_Admin {
 	public static function init() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+		add_action( 'admin_post_omm_clear_all', array( __CLASS__, 'handle_clear_all' ) );
 		add_action( 'admin_post_omm_reset_opcache', array( __CLASS__, 'handle_reset_opcache' ) );
 		add_action( 'admin_post_omm_invalidate_file', array( __CLASS__, 'handle_invalidate_file' ) );
 		add_action( 'admin_post_omm_flush_memcached', array( __CLASS__, 'handle_flush_memcached' ) );
@@ -52,8 +53,26 @@ class OMM_Admin {
 		wp_enqueue_style( 'omm-admin', OMM_URL . 'assets/admin.css', array(), OMM_VERSION );
 	}
 
-	private static function error_transient_key() {
-		return 'omm_admin_error_' . get_current_user_id();
+	private static function flash_key() {
+		return 'omm_admin_flash_' . get_current_user_id();
+	}
+
+	/**
+	 * Queue a one-time admin notice for this user, shown on the next admin
+	 * screen they load (see render_notices()). Kept in a short-lived
+	 * per-user transient rather than the redirect URL, so messages stay out
+	 * of browser history and server logs and can survive a redirect to any
+	 * page — which is what lets the admin-bar actions report back in place.
+	 *
+	 * @param string $type    One of: success, error, warning, info.
+	 * @param string $message Already-translated, plain text.
+	 */
+	private static function set_flash( $type, $message ) {
+		set_transient(
+			self::flash_key(),
+			array( 'type' => $type, 'text' => (string) $message ),
+			MINUTE_IN_SECONDS
+		);
 	}
 
 	private static function verify_capability() {
@@ -62,23 +81,25 @@ class OMM_Admin {
 		}
 	}
 
-	private static function redirect_back( $args = array() ) {
-		$url = add_query_arg(
-			array_merge( array( 'page' => self::PAGE_SLUG ), $args ),
-			admin_url( 'admin.php' )
-		);
-		wp_safe_redirect( $url );
-		exit;
-	}
-
 	/**
-	 * Redirect back with an error notice. The message is stashed in a
-	 * short-lived per-user transient rather than the query string, so it
-	 * stays out of browser history and server access logs.
+	 * Finish an action by redirecting. Honors an `omm_return` request param
+	 * (used by the admin-bar links so you land back where you were),
+	 * validated to this host; otherwise falls back to the Cache Manager
+	 * screen.
 	 */
-	private static function redirect_with_error( $notice, $message ) {
-		set_transient( self::error_transient_key(), (string) $message, MINUTE_IN_SECONDS );
-		self::redirect_back( array( 'omm_notice' => $notice ) );
+	private static function redirect_back() {
+		$target = isset( $_REQUEST['omm_return'] ) ? wp_unslash( $_REQUEST['omm_return'] ) : '';
+
+		if ( '' !== $target ) {
+			$target = wp_validate_redirect( $target, '' );
+		}
+
+		if ( '' === $target ) {
+			$target = admin_url( 'admin.php?page=' . self::PAGE_SLUG );
+		}
+
+		wp_safe_redirect( $target );
+		exit;
 	}
 
 	/**
@@ -121,6 +142,10 @@ class OMM_Admin {
 
 	/* -----------------------------------------------------------------
 	 * Action handlers
+	 *
+	 * Each verifies capability + nonce, does the work, queues a one-time
+	 * notice, and redirects. They're reachable by GET (the admin-bar links)
+	 * as well as POST (the on-screen forms).
 	 * ------------------------------------------------------------- */
 
 	public static function handle_reset_opcache() {
@@ -130,24 +155,28 @@ class OMM_Admin {
 		$result = OMM_OPcache::reset();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'opcache_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'OPcache was reset.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'opcache_reset' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_invalidate_file() {
 		self::verify_capability();
 		check_admin_referer( 'omm_invalidate_file' );
 
-		$path = isset( $_POST['omm_file_path'] ) ? sanitize_text_field( wp_unslash( $_POST['omm_file_path'] ) ) : '';
+		$path   = isset( $_POST['omm_file_path'] ) ? sanitize_text_field( wp_unslash( $_POST['omm_file_path'] ) ) : '';
 		$result = OMM_OPcache::invalidate_file( $path );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'opcache_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'File invalidated in OPcache.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'opcache_invalidated' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_flush_memcached() {
@@ -157,10 +186,12 @@ class OMM_Admin {
 		$result = OMM_Memcached::flush();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'memcached_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'Memcached pool was flushed.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'memcached_flushed' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_flush_object_cache() {
@@ -168,8 +199,38 @@ class OMM_Admin {
 		check_admin_referer( 'omm_flush_object_cache' );
 
 		OMM_Memcached::flush_wp_object_cache();
+		self::set_flash( 'success', __( 'WordPress object cache was flushed.', 'opcache-memcached-manager' ) );
 
-		self::redirect_back( array( 'omm_notice' => 'object_cache_flushed' ) );
+		self::redirect_back();
+	}
+
+	public static function handle_clear_all() {
+		self::verify_capability();
+		check_admin_referer( 'omm_clear_all' );
+
+		$results = omm_clear_all_caches();
+
+		$failed = array();
+		foreach ( $results as $result ) {
+			if ( is_wp_error( $result ) ) {
+				$failed[] = $result->get_error_message();
+			}
+		}
+
+		if ( empty( $failed ) ) {
+			self::set_flash( 'success', __( 'All caches cleared: OPcache, the Memcached pool, the WordPress object cache, and the page cache.', 'opcache-memcached-manager' ) );
+		} else {
+			self::set_flash(
+				'warning',
+				sprintf(
+					/* translators: %s: semicolon-separated list of error messages */
+					__( 'Caches cleared, with some steps skipped: %s', 'opcache-memcached-manager' ),
+					implode( '; ', $failed )
+				)
+			);
+		}
+
+		self::redirect_back();
 	}
 
 	public static function handle_save_settings() {
@@ -187,7 +248,8 @@ class OMM_Admin {
 		update_option( 'omm_settings', array( 'memcached_servers' => $servers ) );
 		OMM_Dropin::sync_config();
 
-		self::redirect_back( array( 'omm_notice' => 'settings_saved' ) );
+		self::set_flash( 'success', __( 'Settings saved.', 'opcache-memcached-manager' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_install_dropin() {
@@ -198,10 +260,12 @@ class OMM_Admin {
 		$result    = OMM_Dropin::install( $overwrite );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'object-cache.php drop-in installed. WordPress will use Memcached as its object cache from the next request onward.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'dropin_installed' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_remove_dropin() {
@@ -211,10 +275,12 @@ class OMM_Admin {
 		$result = OMM_Dropin::remove();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'object-cache.php drop-in removed.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'dropin_removed' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_install_pagecache_dropin() {
@@ -225,10 +291,12 @@ class OMM_Admin {
 		$result    = OMM_PageCache_Dropin::install( $overwrite );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'Page cache drop-in installed.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_installed' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_remove_pagecache_dropin() {
@@ -238,10 +306,12 @@ class OMM_Admin {
 		$result = OMM_PageCache_Dropin::remove();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'Page cache drop-in removed.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'pagecache_dropin_removed' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_save_pagecache_settings() {
@@ -270,10 +340,12 @@ class OMM_Admin {
 		$result = OMM_PageCache::save_settings( $settings );
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'Page cache settings saved.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'pagecache_settings_saved' ) );
+		self::redirect_back();
 	}
 
 	public static function handle_purge_pagecache() {
@@ -283,56 +355,42 @@ class OMM_Admin {
 		$result = OMM_PageCache::purge_all();
 
 		if ( is_wp_error( $result ) ) {
-			self::redirect_with_error( 'pagecache_dropin_error', $result->get_error_message() );
+			self::set_flash( 'error', $result->get_error_message() );
+		} else {
+			self::set_flash( 'success', __( 'Page cache purged.', 'opcache-memcached-manager' ) );
 		}
 
-		self::redirect_back( array( 'omm_notice' => 'pagecache_purged' ) );
+		self::redirect_back();
 	}
 
 	/* -----------------------------------------------------------------
 	 * Notices
 	 * ------------------------------------------------------------- */
 
+	/**
+	 * Show the one-time notice queued by the last action, on whatever admin
+	 * screen the user lands on. Runs on every admin page but only renders
+	 * when a flash is actually waiting.
+	 */
 	public static function render_notices() {
-		if ( ! isset( $_GET['page'] ) || self::PAGE_SLUG !== $_GET['page'] || ! isset( $_GET['omm_notice'] ) ) {
+		if ( ! current_user_can( OMM_CAPABILITY ) ) {
 			return;
 		}
 
-		$notice = sanitize_key( $_GET['omm_notice'] );
-
-		$stored_error = get_transient( self::error_transient_key() );
-		$msg          = is_string( $stored_error ) ? $stored_error : '';
-		if ( '' !== $msg ) {
-			delete_transient( self::error_transient_key() );
-		}
-
-		$map = array(
-			'opcache_reset'        => array( 'success', __( 'OPcache was reset successfully.', 'opcache-memcached-manager' ) ),
-			'opcache_invalidated'  => array( 'success', __( 'File invalidated in OPcache.', 'opcache-memcached-manager' ) ),
-			'opcache_error'        => array( 'error', $msg ?: __( 'An OPcache error occurred.', 'opcache-memcached-manager' ) ),
-			'memcached_flushed'    => array( 'success', __( 'Memcached pool was flushed successfully.', 'opcache-memcached-manager' ) ),
-			'memcached_error'      => array( 'error', $msg ?: __( 'A Memcached error occurred.', 'opcache-memcached-manager' ) ),
-			'object_cache_flushed' => array( 'success', __( 'WordPress object cache was flushed.', 'opcache-memcached-manager' ) ),
-			'settings_saved'       => array( 'success', __( 'Settings saved.', 'opcache-memcached-manager' ) ),
-			'dropin_installed'     => array( 'success', __( 'object-cache.php drop-in installed. WordPress will use Memcached as its object cache from the next request onward.', 'opcache-memcached-manager' ) ),
-			'dropin_removed'       => array( 'success', __( 'object-cache.php drop-in removed.', 'opcache-memcached-manager' ) ),
-			'dropin_error'         => array( 'error', $msg ?: __( 'A drop-in error occurred.', 'opcache-memcached-manager' ) ),
-			'pagecache_dropin_installed' => array( 'success', __( 'Page cache drop-in installed.', 'opcache-memcached-manager' ) ),
-			'pagecache_dropin_removed'   => array( 'success', __( 'Page cache drop-in removed.', 'opcache-memcached-manager' ) ),
-			'pagecache_dropin_error'     => array( 'error', $msg ?: __( 'A page cache error occurred.', 'opcache-memcached-manager' ) ),
-			'pagecache_settings_saved'   => array( 'success', __( 'Page cache settings saved.', 'opcache-memcached-manager' ) ),
-			'pagecache_purged'           => array( 'success', __( 'Page cache purged.', 'opcache-memcached-manager' ) ),
-		);
-
-		if ( ! isset( $map[ $notice ] ) ) {
+		$flash = get_transient( self::flash_key() );
+		if ( ! is_array( $flash ) || empty( $flash['text'] ) ) {
 			return;
 		}
 
-		list( $type, $text ) = $map[ $notice ];
+		delete_transient( self::flash_key() );
+
+		$allowed_types = array( 'success', 'error', 'warning', 'info' );
+		$type          = in_array( $flash['type'], $allowed_types, true ) ? $flash['type'] : 'info';
+
 		printf(
 			'<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
 			esc_attr( $type ),
-			esc_html( $text )
+			esc_html( $flash['text'] )
 		);
 	}
 
@@ -351,12 +409,30 @@ class OMM_Admin {
 		echo '<div class="wrap omm-wrap">';
 		echo '<h1>' . esc_html__( 'Cache Manager', 'opcache-memcached-manager' ) . '</h1>';
 
+		self::render_clear_all();
 		self::render_opcache_section( $opcache_status );
 		self::render_memcached_section( $memcached_stats, $reachability );
 		self::render_dropin_section();
 		self::render_pagecache_section();
 		self::render_settings_section( $servers );
 
+		echo '</div>';
+	}
+
+	private static function render_clear_all() {
+		echo '<div class="card omm-card omm-clear-all">';
+		echo '<p>' . esc_html__( 'Clear everything this plugin can reach in one step: reset OPcache, flush the whole Memcached pool, flush the WordPress object cache, and purge the page cache.', 'opcache-memcached-manager' ) . '</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="omm_clear_all" />';
+		wp_nonce_field( 'omm_clear_all' );
+		submit_button(
+			__( 'Clear all caches', 'opcache-memcached-manager' ),
+			'primary',
+			'submit',
+			false,
+			array( 'onclick' => "return confirm('" . esc_js( __( 'Clear all caches now? This flushes the entire Memcached pool, so any other application sharing it is affected too.', 'opcache-memcached-manager' ) ) . "');" )
+		);
+		echo '</form>';
 		echo '</div>';
 	}
 

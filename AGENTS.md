@@ -9,6 +9,8 @@ Working notes for this plugin. Conventions follow the `wordpress-plugin-scaffold
 - `dropins/*-dropin.php` — templates copied into `wp-content/` by the `OMM_*_Dropin` classes. They run before WordPress loads and must stay self-contained.
 - `tests/` — plain PHPUnit unit tests, no WordPress. `tests/bootstrap.php` shims the few WP functions the tested code touches.
 
+`OMM_Admin` owns the settings screen and every `admin_post_*` handler. `OMM_Admin_Bar` renders the toolbar menu and links back to those same handlers via nonce'd GET URLs with an `omm_return` param. Action results are shown via a one-time per-user transient (`OMM_Admin::set_flash()` → `render_notices()` on `admin_notices`), so a notice can appear on whatever screen the redirect lands on.
+
 ## Invariants
 
 - **Page cache key logic is duplicated on purpose.** `omm_pagecache_build_key()` in `dropins/advanced-cache-dropin.php` and `OMM_PageCache::build_key()` in `includes/class-omm-pagecache.php` must produce identical keys — the drop-in can't call into plugin code. `tests/PageCacheKeyTest.php` locks this; run it after touching either.
