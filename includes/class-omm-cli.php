@@ -399,3 +399,42 @@ class OMM_PageCache_CLI_Command {
 }
 
 WP_CLI::add_command( 'cache-manager pagecache', 'OMM_PageCache_CLI_Command' );
+
+/**
+ * Clear every cache this plugin can reach in one go.
+ */
+class OMM_Cache_CLI_Command {
+
+	/**
+	 * Reset OPcache, flush the whole Memcached pool, flush the WordPress
+	 * object cache, and purge the page cache.
+	 *
+	 * Steps that don't apply (OPcache disabled, no Memcached extension) are
+	 * reported and skipped rather than failing the command.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp cache-manager clear-all
+	 */
+	public function __invoke( $args, $assoc_args ) {
+		$results = omm_clear_all_caches();
+		$failed  = 0;
+
+		foreach ( $results as $subsystem => $result ) {
+			if ( is_wp_error( $result ) ) {
+				$failed++;
+				WP_CLI::warning( "{$subsystem}: " . $result->get_error_message() );
+			} else {
+				WP_CLI::log( "{$subsystem}: cleared" );
+			}
+		}
+
+		if ( $failed === count( $results ) ) {
+			WP_CLI::error( 'Nothing could be cleared.' );
+		}
+
+		WP_CLI::success( 'Caches cleared.' );
+	}
+}
+
+WP_CLI::add_command( 'cache-manager clear-all', 'OMM_Cache_CLI_Command' );
